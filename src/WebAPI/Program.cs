@@ -1,5 +1,6 @@
 using System.Net;
-using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
+using WebAPI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,11 +13,14 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = (int)HttpStatusCode.TooManyRequests;
 
-    options.AddFixedWindowLimiter("FixedWindow", opts =>
-    {
-        opts.Window = TimeSpan.FromSeconds(5);
-        opts.PermitLimit = 1;
-    });
+    options.AddPolicy("FixedWindow", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter($"{httpContext.Request.Path}_{httpContext.GetClientIp().ipAddress}", partition =>
+            new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 1,
+                Window = TimeSpan.FromSeconds(60)
+            }));
 });
 
 var app = builder.Build();
@@ -49,6 +53,15 @@ app.MapGet("/weatherforecast", () =>
     })
     .RequireRateLimiting("FixedWindow")
     .WithName("GetWeatherForecast")
+    .WithOpenApi();
+
+app.MapGet("/diagnostics/client-ip", (HttpContext httpContext) =>
+    {
+        var (ipAddress, source) = httpContext.GetClientIp();
+        return Results.Ok(new { ipAddress, source, resolved = httpContext.ResolveClientIpAddress() });
+    })
+    .RequireRateLimiting("FixedWindow")
+    .WithName("GetClientIpAddress")
     .WithOpenApi();
 
 app.UseRateLimiter();
